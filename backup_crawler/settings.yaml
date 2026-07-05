@@ -1,0 +1,109 @@
+crawler:
+  max_concurrent: 5
+  retry_count: 3
+  retry_delay: 2
+  timeout: 30
+database:
+  charset: utf8mb4
+  database: signals
+  host: localhost
+  password: '111111'
+  port: 3306
+  user: root
+rss_feeds:
+  HackerNews: https://news.ycombinator.com/rss
+  MIT Technology Review: https://www.technologyreview.com/feed/
+  Nature: https://www.nature.com/nature.rss
+  Science: https://www.science.org/rss/news-current.xml
+  TechCrunch: https://techcrunch.com/feed/
+  arXiv: http://arxiv.org/rss/hep-ex
+sources:
+  arxiv:
+    categories:
+    - cs.AI
+    - cs.LG
+    - cs.CV
+    - cs.CL
+    - cs.NE
+    enabled: true
+    max_results: 30
+  openalex:
+    enabled: true
+    max_results: 40
+  pubmed:
+    enabled: true
+    max_results: 25
+  rss:
+    enabled: true
+    max_per_feed: 10
+  sciencedaily:
+    enabled: true
+    max_results: 20
+themes:
+  AI:
+    keywords:
+    - 大语言模型
+    - 多模态AI
+    - AI Agent
+    - 可解释人工智能
+    - 具身智能
+    - 人形机器人
+    - 量子计算
+    - 高端芯片
+    - 卫星互联网
+    name: 未来信息与人工智能
+  Materials:
+    keywords:
+    - 高温合金
+    - 超导材料
+    - 超材料
+    - 增材制造
+    - 3D打印
+    - 复合材料
+    - 工业机器人
+    name: 材料与未来制造
+  Energy:
+    keywords:
+    - 钙钛矿
+    - 氢能
+    - 智能电网
+    - 新型储能
+    - 可控核聚变
+    - 固态电池
+    - 碳捕集
+    - CCUS
+    name: 能源与环境
+  Engineering:
+    keywords:
+    - 智慧城市
+    - 数字孪生
+    - 灾害预警
+    - 自动驾驶
+    - AI伦理
+    - 科技伦理
+    name: 未来工程与社会系统
+  LifeScience:
+    keywords:
+    - 合成生物学
+    - 基因治疗
+    - 精准医疗
+    - 创新药
+    - mRNA
+    - 干细胞
+    - 免疫治疗
+    - 手术机器人
+    name: 生命科学与健康
+  EarthSpace:
+    keywords:
+    - 北斗系统
+    - 深空探测
+    - 卫星互联网
+    - 海洋装备
+    - 空间站
+    - 地球系统
+    - 卫星遥感
+    name: 地球、海洋与空间
+ui:
+  layout: wide
+  page_icon: 📊
+  page_title: 🚀 跨学科前沿成果数据可视化面板
