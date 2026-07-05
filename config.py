@@ -134,12 +134,10 @@ DEFAULT_CONFIG = {
     },
     "rss_feeds": {
         "Science Daily": "https://www.sciencedaily.com/rss/top.xml",
-        "HackerNews": "https://news.ycombinator.com/rss",
         "MIT Technology Review": "https://www.technologyreview.com/feed/",
         "Nature": "https://www.nature.com/nature.rss",
         "Science": "https://www.science.org/rss/news-current.xml",
-        "TechCrunch": "https://techcrunch.com/feed/",
-        "arXiv RSS": "http://arxiv.org/rss/hep-ex"
+        "TechCrunch": "https://techcrunch.com/feed/"
     },
     "ui": {
         "page_title": "🚀 跨学科前沿成果数据可视化面板",

@@ -17,6 +17,7 @@ from processor import ThemeClassifier, TextbookMatcher
 from auth import auth_manager
 from crawler import CrawlerManager, CHINESE_SOURCE_MAP
 from tasks import RedisTaskManager
+from ai_classifier import classify_papers
 
 logger = logging.getLogger(__name__)
 
@@ -536,7 +537,7 @@ def render_dashboard():
             st.markdown("---")
             col_info1, col_info2 = st.columns([3, 1])
             with col_info1:
-                st.info(f"📝 有 {stats.get('unreviewed', 0)} 条成果待人工审核，点击下方按钮快速审核")
+                st.info(f"📝 有 {stats.get('unreviewed', 0)} 条成果待审核，点击下方按钮进入审核")
             with col_info2:
                 if st.button("➡️ 去审核", type="primary"):
                     st.session_state.active_tab = "review"
@@ -927,7 +928,7 @@ def render_edit_panel(paper: dict, user_id: int):
             st.rerun()
 
 def render_review_page():
-    st.subheader("✅ 人工审核")
+    st.subheader("📋 审核文献")
     
     user_id = get_current_user_id()
     
@@ -938,6 +939,41 @@ def render_review_page():
     col_info1.metric("待审核", unreviewed_count)
     col_info2.metric("已审核", stats.get('reviewed', 0))
     col_info3.metric("总计", stats.get('total', 0))
+    
+    # AI 一键审核
+    if unreviewed_count > 0:
+        st.markdown("---")
+        col_btn, col_info = st.columns([1, 3])
+        with col_btn:
+            if st.button("🤖 AI 一键审核", type="primary", use_container_width=True, 
+                         disabled=unreviewed_count == 0,
+                         help=f"调用 DeepSeek AI 对 {unreviewed_count} 篇未审核文献自动分类"):
+                with st.spinner(f"AI 正在审核 {unreviewed_count} 篇文献..."):
+                    from database import Paper
+                    with db.get_session() as session:
+                        unreviewed = session.query(Paper).filter(
+                            Paper.user_id == user_id,
+                            Paper.is_manual_reviewed == False
+                        ).all()
+                        paper_list = [{"id": p.id, "title": p.title, "abstract": p.abstract or "", "source_type": p.source_type} for p in unreviewed]
+                    
+                    # 分批处理（每批10篇）
+                    total_updated = 0
+                    batch_size = 10
+                    for i in range(0, len(paper_list), batch_size):
+                        batch = paper_list[i:i+batch_size]
+                        results = classify_papers(batch)
+                        if results:
+                            updated = db.batch_ai_classify(user_id, results)
+                            total_updated += updated
+                    
+                    if total_updated > 0:
+                        st.success(f"🎉 AI 审核完成！共处理 {total_updated} 篇文献")
+                    else:
+                        st.error("AI 审核失败，请稍后重试")
+                    st.rerun()
+        with col_info:
+            st.caption("调用 DeepSeek AI 自动对未审核文献进行分类和打标签，无需人工逐个审核")
     
     st.markdown("---")
     
@@ -1375,7 +1411,7 @@ def main():
         ('dashboard', '📊 仪表盘'),
         ('papers', '📚 数据浏览'),
         ('crawl', '📡 数据采集'),
-        ('review', '✅ 人工审核'),
+        ('review', '📋 审核文献'),
         ('textbook', '📚 教材匹配'),
     ]
     

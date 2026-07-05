@@ -401,6 +401,39 @@ class DatabaseManager:
         logger.info(f"用户 {user_id} 重新分类完成，更新 {total_updated} 条记录")
         return {'updated': total_updated}
     
+    def batch_ai_classify(self, user_id: int, results: list) -> int:
+        """AI 分类结果批量写入（DeepSeek 返回结果直接入库）"""
+        updated = 0
+        with self.get_session() as session:
+            papers = {p.id: p for p in session.query(Paper).filter(
+                Paper.user_id == user_id
+            ).all()}
+        
+            for r in results:
+                title = r.get('title', '')
+                theme = r.get('theme', 'Other')
+                if theme == 'Other' or theme not in CONFIG['themes']:
+                    continue
+                
+                # 按标题模糊匹配（取前60字符）
+                title_key = title[:60].strip().lower()
+                for pid, paper in papers.items():
+                    if paper.title[:60].strip().lower() == title_key:
+                        paper.manual_theme = theme
+                        paper.is_manual_reviewed = True
+                        paper.theme_confidence = r.get('confidence', 0.8)
+                        paper.core_matched_keywords = ','.join(r.get('core_keywords', []))
+                        paper.matched_keywords = ','.join(r.get('extended_keywords', []))
+                        paper.subject_tags = ','.join(r.get('subject_tags', []))
+                        paper.review_note = '[AI自动审核]'
+                        updated += 1
+                        break
+            
+            if updated > 0:
+                session.commit()
+        logger.info(f"AI 分类完成: 用户={user_id}, 更新={updated} 篇")
+        return updated
+    
     def toggle_star(self, paper_id: int, user_id: int = 1) -> bool:
         """切换收藏状态（用户隔离）"""
         with self.get_session() as session:

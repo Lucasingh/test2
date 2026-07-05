@@ -117,7 +117,7 @@ class CrawlerBase:
         """创建带重试机制的session"""
         session = requests.Session()
         retry = Retry(
-            total=3,
+            total=2,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504]
         )
@@ -151,7 +151,7 @@ class ArxivCrawler(CrawlerBase):
         results = []
         try:
             import arxiv
-            client = arxiv.Client(page_size=10, delay_seconds=3, num_retries=2)
+            client = arxiv.Client(page_size=10, delay_seconds=5, num_retries=2)
 
             for category in self.categories:
                 if self.english_query:
