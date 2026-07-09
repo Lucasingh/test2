@@ -451,9 +451,10 @@ class TechCrunchCrawler(RSSCrawler):
 class GenericWebCrawler(CrawlerBase):
     """通用网页采集器 - 适用于已确认的中文/英文网站数据源"""
 
-    def __init__(self, source_name: str, base_url: str, max_results: int = 10, search_query: str = ""):
+    def __init__(self, source_name: str, base_url: str, max_results: int = 10, search_query: str = "", search_url_template: str = ""):
         super().__init__(source_name, max_results, search_query)
         self.base_url = base_url.rstrip('/')
+        self.search_url_template = search_url_template
         self.timeout = CONFIG.get('crawler', {}).get('timeout', 30)
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -464,7 +465,13 @@ class GenericWebCrawler(CrawlerBase):
     def crawl(self) -> List[Dict]:
         results = []
         try:
-            response = self.session.get(self.base_url, headers=self.headers, timeout=self.timeout)
+            # 有搜索关键词且有搜索URL模板时，用搜索URL；否则用首页
+            if self.search_query and self.search_url_template:
+                target_url = self.search_url_template.replace('{keyword}', self.search_query)
+            else:
+                target_url = self.base_url
+
+            response = self.session.get(target_url, headers=self.headers, timeout=self.timeout)
             if response.status_code != 200:
                 logger.warning(f"{self.source_name} 返回状态码: {response.status_code}")
                 return []
@@ -735,11 +742,12 @@ def format_paper_data(paper: Dict) -> Dict:
 # ============================================================
 
 # 已确认的中文数据源映射（仅包含文档中明确指定的6个中文网站）
+# 格式: (名称, 首页URL, 搜索URL模板, 可选，{keyword} 会被替换为搜索关键词)
 CHINESE_SOURCE_MAP = {
     'kepuchina': ('中国科普博览', 'https://www.kepu.net.cn'),
     'cdstm': ('中国数字科技馆', 'https://www.cdstm.cn'),
     'cccst': ('国家科技传播中心', 'http://www.cccst.org.cn'),
-    'zgcforum': ('中关村论坛', 'https://www.zgcforum.com'),
+    'zgcforum': ('中关村论坛', 'https://www.zgcforum.com', 'https://www.zgcforum.com/search?keyword={keyword}'),
     'kjdb': ('科技导报', 'http://www.kjdb.org'),
     'cstm': ('中国科学技术馆', 'https://cstm.cdstm.cn'),
     'nature': ('Nature', 'https://www.nature.com'),
@@ -814,11 +822,15 @@ class CrawlerManager:
             ))
 
         # 中文网页爬虫数据源（仅文档中确认的）
-        for source_key, (source_name, base_url) in CHINESE_SOURCE_MAP.items():
+        for source_key, source_info in CHINESE_SOURCE_MAP.items():
             if source_key in self.enabled_sources:
+                source_name = source_info[0]
+                base_url = source_info[1]
+                search_url_template = source_info[2] if len(source_info) > 2 else ""
                 self.crawlers.append(GenericWebCrawler(
                     source_name=source_name,
                     base_url=base_url,
+                    search_url_template=search_url_template,
                     max_results=sources_config.get(source_key, {}).get('max_results', self.max_results_per_source),
                     search_query=self.search_query,
                 ))

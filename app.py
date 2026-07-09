@@ -383,6 +383,15 @@ st.markdown("""
         font-size: 0.7rem;
         margin-left: 0.5rem;
     }
+    .manual-review-badge {
+        display: inline-block;
+        background: #ef4444;
+        color: white;
+        padding: 0.2rem 0.6rem;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        margin-left: 0.5rem;
+    }
     [data-testid="stBaseButton-secondary"] p,
     [data-testid="stBaseButton-primary"] p {
         white-space: nowrap;
@@ -417,10 +426,52 @@ DEFAULT_KEYWORDS = [
 def render_sidebar():
     user = st.session_state.get('current_user')
     if user:
-        st.sidebar.markdown(f"""
-        **👤 用户: {user.get('full_name') or user.get('username')}**
-        ({user.get('email', '')})
-        """)
+        st.sidebar.markdown(f"**👤 {user.get('full_name') or user.get('username')}**")
+        
+        with st.sidebar.expander("⚙️ 个人信息设置"):
+            # 资料修改
+            new_full_name = st.text_input("显示名称", value=user.get('full_name', ''), key="profile_name")
+            new_email = st.text_input("邮箱", value=user.get('email', ''), key="profile_email")
+            new_username = st.text_input("用户名", value=user.get('username', ''), key="profile_username")
+            
+            if st.button("💾 保存资料", use_container_width=True):
+                result = auth_manager.update_profile(
+                    user_id=user['id'],
+                    username=new_username if new_username != user.get('username') else None,
+                    email=new_email if new_email != user.get('email') else None,
+                    full_name=new_full_name
+                )
+                if result['success']:
+                    st.session_state.current_user = {
+                        **st.session_state.current_user,
+                        'username': result['username'],
+                        'email': result['email'],
+                        'full_name': result['full_name']
+                    }
+                    st.success(result['message'])
+                else:
+                    st.error(result['message'])
+            
+            st.markdown("---")
+            
+            # 密码修改
+            st.caption("修改密码")
+            old_pwd = st.text_input("原密码", type="password", key="old_pwd")
+            new_pwd = st.text_input("新密码", type="password", key="new_pwd")
+            confirm_pwd = st.text_input("确认新密码", type="password", key="confirm_pwd")
+            
+            if st.button("🔒 修改密码", use_container_width=True):
+                if new_pwd != confirm_pwd:
+                    st.error("两次输入的新密码不一致")
+                elif len(new_pwd) < 6:
+                    st.error("新密码至少 6 位")
+                else:
+                    result = auth_manager.change_password(user['id'], old_pwd, new_pwd)
+                    if result['success']:
+                        st.success(result['message'])
+                    else:
+                        st.error(result['message'])
+        
         if st.sidebar.button("🚪 退出登录"):
             logout()
         st.sidebar.markdown("---")
@@ -693,7 +744,7 @@ def get_theme_color(theme: str) -> str:
     }
     return colors.get(theme, '#6b7280')
 
-def render_paper_card(paper: dict, user_id: int = 1, show_edit: bool = True):
+def render_paper_card(paper: dict, user_id: int = 1, show_edit: bool = True, show_delete: bool = False):
     theme_color = get_theme_color(paper['theme_bucket'])
     theme_name = ThemeClassifier.get_theme_name(paper['theme_bucket'])
     abstract_full = paper['abstract'][:500] if paper['abstract'] else "暂无摘要"
@@ -723,7 +774,7 @@ def render_paper_card(paper: dict, user_id: int = 1, show_edit: bool = True):
                             {theme_name}
                         </span>
                         {f"{'📰' if paper['signal_type'] == 'news' else '📄'}"}
-                        {'<span class="reviewed-badge">✓ 已审核</span>' if paper.get('is_manual_reviewed') else '<span class="unreviewed-badge">待审核</span>'}
+                        {'<span class="manual-review-badge">🔧 需人工审核</span>' if paper.get('skip_ai') else ('<span class="reviewed-badge">✓ 已审核</span>' if paper.get('is_manual_reviewed') else '<span class="unreviewed-badge">待审核</span>')}
                     </div>
         """, unsafe_allow_html=True)
         
@@ -761,17 +812,26 @@ def render_paper_card(paper: dict, user_id: int = 1, show_edit: bool = True):
         with col2:
             star_text = "⭐" if paper['is_starred'] else "☆"
             if show_edit:
-                col_star, col_edit = st.columns([1.2, 1])
-                with col_star:
+                with st.popover("⋯", use_container_width=True):
                     if st.button(f"{star_text} 收藏", key=f"star_{paper['id']}", use_container_width=True):
                         db.toggle_star(paper['id'], user_id)
                         st.rerun()
-                with col_edit:
                     if st.button("✏️ 编辑", key=f"edit_btn_{paper['id']}", use_container_width=True):
                         if is_editing:
                             st.session_state.editing_paper_id = None
                         else:
                             st.session_state.editing_paper_id = paper['id']
+                        st.rerun()
+                    if not paper.get('skip_ai'):
+                        if st.button("🔧 人工审核", key=f"manual_review_{paper['id']}", use_container_width=True,
+                                     help="标记为需人工审核，AI 将不会自动处理此文献"):
+                            db.mark_manual_review(paper['id'], user_id)
+                            st.rerun()
+                if show_delete:
+                    if st.button("🗑️ 删除", key=f"delete_{paper['id']}", use_container_width=True,
+                                 help="从数据库中删除此文献"):
+                        db.delete_paper(paper['id'], user_id)
+                        st.success("已删除")
                         st.rerun()
             else:
                 if st.button(f"{star_text} 收藏", key=f"star_{paper['id']}", use_container_width=True):
@@ -942,18 +1002,20 @@ def render_review_page():
     
     # AI 一键审核
     if unreviewed_count > 0:
+        ai_available = unreviewed_count - stats.get('skip_ai', 0)
         st.markdown("---")
         col_btn, col_info = st.columns([1, 3])
         with col_btn:
             if st.button("🤖 AI 一键审核", type="primary", use_container_width=True, 
-                         disabled=unreviewed_count == 0,
-                         help=f"调用 DeepSeek AI 对 {unreviewed_count} 篇未审核文献自动分类"):
-                with st.spinner(f"AI 正在审核 {unreviewed_count} 篇文献..."):
+                         disabled=ai_available == 0,
+                         help=f"DeepSeek AI 可处理 {ai_available} 篇未审核文献（已排除需人工审核的 {stats.get('skip_ai', 0)} 篇）"):
+                with st.spinner(f"AI 正在审核 {ai_available} 篇文献..."):
                     from database import Paper
                     with db.get_session() as session:
                         unreviewed = session.query(Paper).filter(
                             Paper.user_id == user_id,
-                            Paper.is_manual_reviewed == False
+                            Paper.is_manual_reviewed == False,
+                            Paper.skip_ai == False
                         ).all()
                         paper_list = [{"id": p.id, "title": p.title, "abstract": p.abstract or "", "source_type": p.source_type} for p in unreviewed]
                     
@@ -973,7 +1035,8 @@ def render_review_page():
                         st.error("AI 审核失败，请稍后重试")
                     st.rerun()
         with col_info:
-            st.caption("调用 DeepSeek AI 自动对未审核文献进行分类和打标签，无需人工逐个审核")
+            skip_text = f"（已跳过 {stats.get('skip_ai', 0)} 篇标记为需人工审核的文献）" if stats.get('skip_ai', 0) > 0 else ""
+            st.caption(f"调用 DeepSeek AI 自动对未审核文献分类打标签{skip_text}。标记为「需人工审核」的文献不会被 AI 处理。")
     
     st.markdown("---")
     
@@ -1012,7 +1075,7 @@ def render_review_page():
         )
         
         for paper in papers:
-            render_paper_card(paper, user_id, show_edit=True)
+            render_paper_card(paper, user_id, show_edit=True, show_delete=True)
         
         if total_pages > 1:
             col_prev, col_page, col_next = st.columns([1, 2, 1])
@@ -1046,7 +1109,6 @@ def render_crawl_page():
 
     # --- 采集配置区 ---
     with st.container():
-        st.markdown('<div class="config-panel">', unsafe_allow_html=True)
         st.markdown("**⚙️ 采集配置**")
 
         col1, col2 = st.columns([3, 2])
@@ -1144,7 +1206,6 @@ def render_crawl_page():
                     st.session_state.crawl_task_id = None
                     st.rerun()
 
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 进度与结果区 ---
     task_id = st.session_state.get('crawl_task_id')

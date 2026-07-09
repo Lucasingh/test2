@@ -144,15 +144,64 @@ class AuthManager:
             logger.error(f"获取用户失败: {e}")
             return None
 
+    def update_profile(self, user_id: int, username: str = None, email: str = None, full_name: str = None) -> Dict[str, Any]:
+        """更新用户资料"""
+        try:
+            with db.get_session() as session:
+                user = session.query(User).filter_by(id=user_id).first()
+                if not user:
+                    return {'success': False, 'message': '用户不存在'}
+
+                if username and username != user.username:
+                    if session.query(User).filter_by(username=username).first():
+                        return {'success': False, 'message': '用户名已被占用'}
+                    user.username = username
+
+                if email and email != user.email:
+                    if session.query(User).filter_by(email=email).first():
+                        return {'success': False, 'message': '邮箱已被占用'}
+                    user.email = email
+
+                if full_name is not None:
+                    user.full_name = full_name
+
+                session.commit()
+                logger.info(f"用户 {user_id} 资料更新成功")
+                return {'success': True, 'message': '资料更新成功',
+                        'username': user.username, 'email': user.email, 'full_name': user.full_name}
+        except Exception as e:
+            logger.error(f"更新用户资料失败: {e}")
+            return {'success': False, 'message': str(e)}
+
+    def change_password(self, user_id: int, old_password: str, new_password: str) -> Dict[str, Any]:
+        """修改密码"""
+        try:
+            with db.get_session() as session:
+                user = session.query(User).filter_by(id=user_id).first()
+                if not user:
+                    return {'success': False, 'message': '用户不存在'}
+
+                if not bcrypt.checkpw(old_password.encode('utf-8'), user.password_hash.encode('utf-8')):
+                    return {'success': False, 'message': '原密码错误'}
+
+                user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                session.commit()
+                logger.info(f"用户 {user_id} 密码修改成功")
+                return {'success': True, 'message': '密码修改成功'}
+        except Exception as e:
+            logger.error(f"修改密码失败: {e}")
+            return {'success': False, 'message': str(e)}
+
 # 全局认证管理器实例
 auth_manager = AuthManager()
 
 # 初始化默认用户
 def init_default_users():
     """初始化默认用户（首次运行时）"""
-    if not auth_manager.authenticate('admin', 'admin123'):
-        auth_manager.create_user('admin', 'admin@example.com', 'admin123', '管理员')
-        logger.info("默认管理员用户已创建: admin/admin123")
+    with db.get_session() as session:
+        if not session.query(User).filter_by(username='admin').first():
+            auth_manager.create_user('admin', 'admin@example.com', 'admin123', '管理员')
+            logger.info("默认管理员用户已创建: admin/admin123")
 
 # 初始化默认用户
 init_default_users()

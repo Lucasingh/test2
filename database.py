@@ -48,6 +48,7 @@ class Paper(Base):
     is_manual_reviewed = Column(Boolean, default=False, index=True)
     manual_theme = Column(String(50))
     review_note = Column(Text)
+    skip_ai = Column(Boolean, default=False)
     
     textbook_matches = Column(Text)
     
@@ -334,6 +335,7 @@ class DatabaseManager:
             'core_matched_keywords': paper.core_matched_keywords or '',
             'subject_tags': paper.subject_tags or '',
             'is_manual_reviewed': paper.is_manual_reviewed or False,
+            'skip_ai': paper.skip_ai or False,
             'manual_theme': paper.manual_theme,
             'review_note': paper.review_note or '',
             'textbook_matches': paper.textbook_matches or ''
@@ -352,6 +354,7 @@ class DatabaseManager:
                 if is_manual:
                     paper.manual_theme = theme_bucket
                     paper.is_manual_reviewed = True
+                    paper.skip_ai = False  # 人工审核通过后清除 skip_ai 标记
                     paper.review_note = review_note
                     if matched_keywords:
                         paper.matched_keywords = matched_keywords
@@ -419,6 +422,8 @@ class DatabaseManager:
                 title_key = title[:60].strip().lower()
                 for pid, paper in papers.items():
                     if paper.title[:60].strip().lower() == title_key:
+                        if paper.skip_ai:  # 用户指定人工审核，AI 跳过
+                            continue
                         paper.manual_theme = theme
                         paper.is_manual_reviewed = True
                         paper.theme_confidence = r.get('confidence', 0.8)
@@ -460,6 +465,7 @@ class DatabaseManager:
             themes = session.query(Paper.theme_bucket, func.count(Paper.id)).filter(Paper.user_id == user_id, Paper.theme_bucket.isnot(None)).group_by(Paper.theme_bucket).all()
             starred_count = session.query(func.count(Paper.id)).filter(Paper.user_id == user_id, Paper.is_starred == True).scalar() or 0
             reviewed_count = session.query(func.count(Paper.id)).filter(Paper.user_id == user_id, Paper.is_manual_reviewed == True).scalar() or 0
+            skip_ai_count = session.query(func.count(Paper.id)).filter(Paper.user_id == user_id, Paper.skip_ai == True).scalar() or 0
             
             return {
                 'total': total,
@@ -469,7 +475,8 @@ class DatabaseManager:
                 'themes': {t[0]: t[1] for t in themes},
                 'starred': starred_count,
                 'reviewed': reviewed_count,
-                'unreviewed': total - reviewed_count
+                'unreviewed': total - reviewed_count,
+                'skip_ai': skip_ai_count
             }
     
     def initialize_sample_data(self, user_id: int = 1) -> int:
@@ -599,6 +606,28 @@ class DatabaseManager:
             session.query(CrawlHistory).filter(CrawlHistory.user_id == user_id).delete()
             session.query(Favorite).filter(Favorite.user_id == user_id).delete()
             return count
+
+    def delete_paper(self, paper_id: int, user_id: int) -> bool:
+        """删除单篇文献（用户隔离）"""
+        with self.get_session() as session:
+            paper = session.query(Paper).filter(Paper.id == paper_id, Paper.user_id == user_id).first()
+            if paper:
+                session.delete(paper)
+                session.commit()
+                return True
+            return False
+
+    def mark_manual_review(self, paper_id: int, user_id: int) -> bool:
+        """标记为需要人工审核（AI 将跳过此文献）"""
+        with self.get_session() as session:
+            paper = session.query(Paper).filter(Paper.id == paper_id, Paper.user_id == user_id).first()
+            if paper:
+                paper.skip_ai = True
+                paper.is_manual_reviewed = False
+                paper.review_note = '[用户指定人工审核]'
+                session.commit()
+                return True
+            return False
 
     def create_user_session(self, user_id: int, token: str, expires_at: datetime, ip_address: str = None, user_agent: str = None) -> bool:
         """创建用户会话（单点登录：先使旧会话失效）"""
